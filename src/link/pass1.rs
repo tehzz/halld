@@ -1,40 +1,41 @@
-use std::{collections::HashMap, fs, path::{PathBuf, Path, Component}};
+use std::{
+    fs,
+    path::{Component, Path, PathBuf},
+};
 
-use crate::link;
+use crate::link::{self, CDefs, Sym, SymMap};
 use halld::LinkerScript;
 
 use anyhow::{bail, Context, Result};
-use object::{read, Object, ObjectSymbol, SymbolKind};
-
-#[derive(Debug, Copy, Clone, PartialEq, Eq)]
-pub(crate) struct Sym {
-    pub(crate) addr: u32,
-    pub(crate) file: usize,
-}
-
-pub(crate) type SymMap = HashMap<String, Sym>;
-pub(crate) type CDefs = Vec<(String, u16)>;
+use object::{read, Object, ObjectSymbol, SymbolKind, SymbolSection};
 
 #[derive(Debug)]
-pub(crate) struct Pass1 {
-    pub(crate) script: LinkerScript,
-    pub(crate) sym_map: SymMap,
-    pub(crate) c_header: CDefs,
+pub(super) struct Pass1 {
+    pub(super) script: LinkerScript,
+    pub(super) sym_map: SymMap,
+    pub(super) c_header: CDefs,
 }
 
 impl Pass1 {
-    pub(crate) fn run(mut script: LinkerScript, search_dirs: Option<Vec<PathBuf>>) -> Result<Self> {
+    pub(super) fn run(mut script: LinkerScript, search_dirs: Option<Vec<PathBuf>>) -> Result<Self> {
         let search = search_dirs.as_deref();
 
-        let mut sym_map = HashMap::with_capacity(script.len());
+        if script.len() > u16::MAX as usize {
+            bail!(
+                "More than u16::MAX total files: {} > {}",
+                script.len(),
+                u16::MAX
+            );
+        }
+
+        let mut sym_map = SymMap::with_capacity(script.len());
         let mut c_header = Vec::with_capacity(script.len());
-        let mut sym_rename = None;
+        let mut sym_clash = None;
         for (i, entry) in script.iter_mut().enumerate() {
             // use the original name for creating c defines
-            let idx = u16::try_from(i)
-                .with_context(|| format!("More than u16::MAX files: file <{}> was {} of max {}", entry.file.display(), i, u16::MAX))?;
+            let idx = i as u16;
             let def = (fmt_filename(&entry.file), idx);
-            c_header.push(def); 
+            c_header.push(def);
             // what to do about the same named files...?
             locate_file(&mut entry.file, search).context("locating files to link")?;
 
@@ -42,18 +43,19 @@ impl Pass1 {
                 let file = fs::read(&entry.file)?;
                 let obj = read::File::parse(&*file)?;
                 for sym in obj.symbols() {
-                    if sym.kind() == SymbolKind::Unknown && sym.is_global() {
+                    println!("{:#?}", sym);
+                    // todo: check that the symbol is in the data section
+                    if sym.kind() == SymbolKind::Unknown
+                        && sym.is_global()
+                        && sym.section() != SymbolSection::Undefined
+                    {
                         let name = sym.name()?.to_string();
                         let addr = sym.address() as u32;
-                        sym_map.insert(
-                            name,
-                            Sym {
-                                addr,
-                                file: i,
-                            },
-                        );
+                        sym_clash = sym_map
+                            .insert(name, Sym { addr, file: i })
+                            .map(|old| (sym.name().unwrap().to_string(), old, i));
                     } else {
-                        println!("unneeded symbol? {:#?}", sym);
+                        //println!("unneeded symbol? {:#?}", sym);
                     }
                 }
             } else if let Some(syms) = entry.exports.as_ref() {
@@ -62,24 +64,31 @@ impl Pass1 {
                         addr: *addr,
                         file: i,
                     };
-
-                    if let Some(old) = sym_map.insert(name.clone(), sym) {
-                        sym_rename = Some((name.clone(), old));
-                        break;
-                    }
+                    sym_clash = sym_map
+                        .insert(name.clone(), sym)
+                        .map(|old| (name.clone(), old, i));
                 }
+            }
+
+            if sym_clash.is_some() {
+                break;
             }
         }
 
-        if let Some((name, sym)) = sym_rename {
+        if let Some((name, sym, next)) = sym_clash {
             bail!(
-                "Symobl < {} > already definied in file < {} >",
+                "Symbol < {} > already definied in file < {} > and redefined in < {} >",
                 name,
-                script[sym.file].file.display()
+                script[sym.file].file.display(),
+                script[next].file.display()
             );
         }
 
-        Ok(Self { script, sym_map, c_header })
+        Ok(Self {
+            script,
+            sym_map,
+            c_header,
+        })
     }
 }
 
@@ -115,7 +124,10 @@ fn fmt_filename(p: &Path) -> String {
             s += "_";
             match cmpt {
                 Component::Normal(p) => s += &p.to_ascii_uppercase().to_string_lossy(),
-                Component::Prefix(_) | Component::RootDir | Component::CurDir | Component::ParentDir => (),
+                Component::Prefix(_)
+                | Component::RootDir
+                | Component::CurDir
+                | Component::ParentDir => (),
             }
         }
     }

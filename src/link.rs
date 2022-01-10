@@ -1,9 +1,10 @@
 use halld::LinkerConfig;
 use object::{
-    write::{self, StandardSegment},
-    Architecture, BinaryFormat, Endianness, SectionKind,
+    write::{self, SectionId, StandardSegment},
+    Architecture, BinaryFormat, Endianness, SectionIndex, SectionKind,
 };
 use std::{
+    collections::HashMap,
     fs::File,
     io::{BufReader, BufWriter},
     path::{Path, PathBuf},
@@ -13,6 +14,15 @@ use anyhow::{anyhow, Context, Result};
 
 mod pass1;
 mod pass2;
+
+#[derive(Debug, Copy, Clone, PartialEq, Eq)]
+struct Sym {
+    addr: u32,
+    file: usize,
+}
+
+type SymMap = HashMap<String, Sym>;
+type CDefs = Vec<(String, u16)>;
 
 pub(crate) fn run(
     config: PathBuf,
@@ -64,15 +74,45 @@ fn is_object(p: impl AsRef<Path>) -> bool {
 }
 
 fn create_object(p2: pass2::Pass2) -> write::Object<'static> {
-    let mut obj = write::Object::new(BinaryFormat::Elf, Architecture::Mips64, Endianness::Big);
+    let mut obj = write::Object::new(BinaryFormat::Elf, Architecture::Mips, Endianness::Big);
+
+    // set mips2
+    const EF_MIPS_ARCH_MIPS2: u32 = 1 << 28;
+    obj.flags = object::FileFlags::Elf {
+        e_flags: EF_MIPS_ARCH_MIPS2,
+    };
 
     let data_seg = obj.segment_name(StandardSegment::Data);
-    let pass2::Pass2 { table, data, .. } = p2;
+    let pass2::Pass2 {
+        table,
+        data,
+        symbols,
+        ..
+    } = p2;
     let tsec = obj.add_section(data_seg.to_vec(), b".filetable".to_vec(), SectionKind::Data);
     let fsec = obj.add_section(data_seg.to_vec(), b".files".to_vec(), SectionKind::Data);
 
     obj.set_section_data(tsec, table, 4);
     obj.set_section_data(fsec, data, 4);
 
+    let create_symbol = |info| create_symbol(fsec, info);
+
+    for symbol in symbols.into_iter().map(create_symbol) {
+        obj.add_symbol(symbol);
+    }
+
     obj
+}
+
+fn create_symbol(sec: SectionId, (name, sym): (String, Sym)) -> write::Symbol {
+    write::Symbol {
+        name: name.into_bytes(),
+        value: sym.addr as u64,
+        size: 4,
+        kind: object::SymbolKind::Data,
+        scope: object::SymbolScope::Dynamic,
+        weak: false,
+        section: write::SymbolSection::Section(sec),
+        flags: object::SymbolFlags::None,
+    }
 }

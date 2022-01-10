@@ -1,5 +1,4 @@
-use super::pass1::{Pass1, SymMap, CDefs};
-use crate::link;
+use crate::link::{self, pass1::Pass1, CDefs, SymMap};
 
 use std::{fs, path::Path};
 
@@ -9,37 +8,42 @@ use object::{read, Object, ObjectSection, ObjectSymbol, RelocationTarget};
 use vpk0::{format::VpkMethod, Encoder};
 
 #[derive(Debug, Copy, Clone)]
-pub(crate) struct FileInfo {
-    pub(crate) offset: u32,
-    pub(crate) size: u32,
-    pub(crate) comp_size: Option<u32>,
-    pub(crate) inreloc: Option<u32>,
-    pub(crate) exreloc: Option<u32>,
+pub(super) struct FileInfo {
+    pub(super) offset: u32,
+    pub(super) size: u32,
+    pub(super) comp_size: Option<u32>,
+    pub(super) inreloc: Option<u32>,
+    pub(super) exreloc: Option<u32>,
 }
 
 #[derive(Debug)]
-pub(crate) struct Pass2 {
-    pub(crate) table: Vec<u8>,
-    pub(crate) data: Vec<u8>,
-    pub(crate) c_header: CDefs,
+pub(super) struct Pass2 {
+    pub(super) table: Vec<u8>,
+    pub(super) data: Vec<u8>,
+    pub(super) c_header: CDefs,
+    pub(super) symbols: SymMap,
 }
 
 impl Pass2 {
-    pub(crate) fn run(pass1: Pass1) -> Result<Self> {
-        let Pass1 { script, sym_map, c_header } = pass1;
+    pub(super) fn run(pass1: Pass1) -> Result<Self> {
+        let Pass1 {
+            script,
+            sym_map,
+            c_header,
+        } = pass1;
 
         let mut output = Vec::with_capacity(0x0100_0000);
         let mut table = Vec::with_capacity((script.len() + 1) * 12);
 
         for (i, entry) in script.into_iter().enumerate() {
-            let (mut data, externs) = if link::is_object(&entry.file) {
+            let (mut data, externs, inreloc, exreloc) = if link::is_object(&entry.file) {
                 relocate_obj(&entry.file, &sym_map)
                     .with_context(|| format!("relocating < {} >", entry.file.display()))?
             } else {
                 let data = fs::read(&entry.file)
                     .with_context(|| format!("reading < {} > in pass 2", entry.file.display()))?;
 
-                (data, entry.imports)
+                (data, entry.imports, entry.inreloc, entry.exreloc)
             };
 
             align_buffer(&mut data);
@@ -63,8 +67,8 @@ impl Pass2 {
                 offset,
                 size,
                 comp_size,
-                inreloc: None,
-                exreloc: None,
+                inreloc,
+                exreloc,
             };
             println!("{}\t{:x?}", i, info);
 
@@ -81,12 +85,15 @@ impl Pass2 {
             table,
             data: output,
             c_header,
+            symbols: sym_map,
         })
     }
 }
 
+type RelInfo = (Vec<u8>, Option<Vec<u16>>, Option<u32>, Option<u32>);
+
 /// Right now, this only extracts and relocates data from the .data section of an object
-fn relocate_obj(p: &Path, sym_map: &SymMap) -> Result<(Vec<u8>, Option<Vec<u16>>)> {
+fn relocate_obj(p: &Path, sym_map: &SymMap) -> Result<RelInfo> {
     let file = fs::read(p).context("opening object for relocation")?;
     let obj = read::File::parse(&*file).context("parsing object for relocation")?;
     let data_sec = obj
@@ -141,7 +148,10 @@ fn relocate_obj(p: &Path, sym_map: &SymMap) -> Result<(Vec<u8>, Option<Vec<u16>>
         Some(externs)
     };
 
-    Ok((data, externs))
+    let inreloc = internal_relocs.first().map(|(l, _)| *l as u32);
+    let exreloc = external_relocs.first().map(|(l, _)| *l as u32);
+
+    Ok((data, externs, inreloc, exreloc))
 }
 
 fn relocate(buf: &mut Vec<u8>, relocations: &[(usize, u32)]) -> Result<()> {
