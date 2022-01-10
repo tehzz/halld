@@ -1,4 +1,4 @@
-use super::pass1::{Pass1, SymMap};
+use super::pass1::{Pass1, SymMap, CDefs};
 use crate::link;
 
 use std::{fs, path::Path};
@@ -21,16 +21,16 @@ pub(crate) struct FileInfo {
 pub(crate) struct Pass2 {
     pub(crate) table: Vec<u8>,
     pub(crate) data: Vec<u8>,
-    pub(crate) symbols: Vec<(String, u32)>,
+    pub(crate) c_header: CDefs,
 }
 
 impl Pass2 {
     pub(crate) fn run(pass1: Pass1) -> Result<Self> {
-        let Pass1 { script, sym_map } = pass1;
+        let Pass1 { script, sym_map, c_header } = pass1;
 
         let mut output = Vec::with_capacity(0x0100_0000);
         let mut table = Vec::with_capacity((script.len() + 1) * 12);
-        let mut symbols = Vec::with_capacity(script.len());
+
         for (i, entry) in script.into_iter().enumerate() {
             let (mut data, externs) = if link::is_object(&entry.file) {
                 relocate_obj(&entry.file, &sym_map)
@@ -38,9 +38,8 @@ impl Pass2 {
             } else {
                 let data = fs::read(&entry.file)
                     .with_context(|| format!("reading < {} > in pass 2", entry.file.display()))?;
-                let externs = entry.imports;
 
-                (data, externs)
+                (data, entry.imports)
             };
 
             align_buffer(&mut data);
@@ -74,8 +73,6 @@ impl Pass2 {
                 add_externs(&mut output, ex);
             }
             add_file_info(&mut table, info).context("writing file info to file table")?;
-
-            symbols.push((format!("RLD_FILE_{}", entry.file.display()), i as u32));
         }
 
         terminate_table(&mut table, output.len()).context("terminating resource table")?;
@@ -83,7 +80,7 @@ impl Pass2 {
         Ok(Self {
             table,
             data: output,
-            symbols,
+            c_header,
         })
     }
 }
@@ -106,11 +103,11 @@ fn relocate_obj(p: &Path, sym_map: &SymMap) -> Result<(Vec<u8>, Option<Vec<u16>>
     for (loc, reloc) in data_sec.relocations() {
         let loc = loc as usize;
         if reloc.size() != 32 {
-            bail!("Can only relocate 32bit pointers; {:?}", reloc);
+            bail!("can only relocate 32bit pointers; {:?}", reloc);
         }
         let sym_name = match reloc.target() {
             RelocationTarget::Symbol(idx) => obj.symbol_by_index(idx)?.name()?,
-            unk @ _ => bail!("Unexpected relocation target: {:?}", unk),
+            unk => bail!("unsupported relocation target: {:#?}", unk),
         };
 
         if sym_name == ".data" {

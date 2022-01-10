@@ -1,4 +1,4 @@
-use std::{collections::HashMap, fs, path::PathBuf};
+use std::{collections::HashMap, fs, path::{PathBuf, Path, Component}};
 
 use crate::link;
 use halld::LinkerScript;
@@ -10,15 +10,16 @@ use object::{read, Object, ObjectSymbol, SymbolKind};
 pub(crate) struct Sym {
     pub(crate) addr: u32,
     pub(crate) file: usize,
-    pub(crate) global: bool,
 }
 
 pub(crate) type SymMap = HashMap<String, Sym>;
+pub(crate) type CDefs = Vec<(String, u16)>;
 
 #[derive(Debug)]
 pub(crate) struct Pass1 {
     pub(crate) script: LinkerScript,
-    pub(crate) sym_map: HashMap<String, Sym>,
+    pub(crate) sym_map: SymMap,
+    pub(crate) c_header: CDefs,
 }
 
 impl Pass1 {
@@ -26,9 +27,14 @@ impl Pass1 {
         let search = search_dirs.as_deref();
 
         let mut sym_map = HashMap::with_capacity(script.len());
+        let mut c_header = Vec::with_capacity(script.len());
         let mut sym_rename = None;
         for (i, entry) in script.iter_mut().enumerate() {
-            // store the original name for easy linking
+            // use the original name for creating c defines
+            let idx = u16::try_from(i)
+                .with_context(|| format!("More than u16::MAX files: file <{}> was {} of max {}", entry.file.display(), i, u16::MAX))?;
+            let def = (fmt_filename(&entry.file), idx);
+            c_header.push(def); 
             // what to do about the same named files...?
             locate_file(&mut entry.file, search).context("locating files to link")?;
 
@@ -36,15 +42,13 @@ impl Pass1 {
                 let file = fs::read(&entry.file)?;
                 let obj = read::File::parse(&*file)?;
                 for sym in obj.symbols() {
-                    if sym.kind() == SymbolKind::Unknown {
+                    if sym.kind() == SymbolKind::Unknown && sym.is_global() {
                         let name = sym.name()?.to_string();
                         let addr = sym.address() as u32;
-                        let global = sym.is_global();
                         sym_map.insert(
                             name,
                             Sym {
                                 addr,
-                                global,
                                 file: i,
                             },
                         );
@@ -57,7 +61,6 @@ impl Pass1 {
                     let sym = Sym {
                         addr: *addr,
                         file: i,
-                        global: true,
                     };
 
                     if let Some(old) = sym_map.insert(name.clone(), sym) {
@@ -76,9 +79,7 @@ impl Pass1 {
             );
         }
 
-        println!("{:#?}", &sym_map);
-
-        Ok(Self { script, sym_map })
+        Ok(Self { script, sym_map, c_header })
     }
 }
 
@@ -105,4 +106,24 @@ fn locate_file(file: &mut PathBuf, search_dirs: Option<&[PathBuf]>) -> Result<()
     }
 
     Ok(())
+}
+
+fn fmt_filename(p: &Path) -> String {
+    let mut s = "RLD_FID".to_string();
+    if let Some(parent) = p.parent() {
+        for cmpt in parent.components() {
+            s += "_";
+            match cmpt {
+                Component::Normal(p) => s += &p.to_ascii_uppercase().to_string_lossy(),
+                Component::Prefix(_) | Component::RootDir | Component::CurDir | Component::ParentDir => (),
+            }
+        }
+    }
+
+    if let Some(stem) = p.file_stem() {
+        s += "_";
+        s += &stem.to_ascii_uppercase().to_string_lossy();
+    }
+
+    s
 }

@@ -30,8 +30,6 @@ pub(crate) fn run(
         script,
     } = config;
 
-    println!("{:#?}", settings);
-
     let config_output = settings.as_mut().and_then(|s| s.output.take());
     let config_search = settings.and_then(|s| s.search_dirs);
 
@@ -50,6 +48,7 @@ pub(crate) fn run(
 
     let p1 = pass1::Pass1::run(script, search_dirs).context("linker pass 1")?;
     let p2 = pass2::Pass2::run(p1)?;
+    println!("c header\n{:#?}", &p2.c_header);
     let obj = create_object(p2);
 
     let wtr = BufWriter::new(File::create(output).context("making output file")?);
