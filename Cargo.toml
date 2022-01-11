@@ -10,6 +10,7 @@ serde = { version = "1.0", features = ["derive"] }
 serde_json = "1.0"
 pico-args = "0.4.2"
 anyhow = "1"
+indoc = "1"
 vpk0 = "0.8"
 object = { version = "0.28.1", default_features = false, features = ["read_core", "write_std", "elf"] }
 

@@ -5,16 +5,17 @@ use object::{
 };
 use std::{
     collections::HashMap,
-    fs::{File},
+    fs::File,
     io::{BufReader, BufWriter},
-    path::{Path, Component},
+    path::{Component, Path},
 };
 
 use anyhow::{anyhow, Context, Result};
 
+mod chdr;
+mod mkdep;
 mod pass1;
 mod pass2;
-mod chdr;
 
 #[derive(Debug, Copy, Clone, PartialEq, Eq)]
 struct Sym {
@@ -26,8 +27,13 @@ type SymMap = HashMap<String, Sym>;
 type CDefs = Vec<(String, u16)>;
 
 pub(crate) fn run(opts: crate::RunOpt) -> Result<()> {
-    let crate::RunOpt { config, search, output, header, mdep } = opts;
-
+    let crate::RunOpt {
+        config,
+        search,
+        output,
+        header,
+        mdep,
+    } = opts;
 
     let rdr = BufReader::new(
         File::open(&config)
@@ -58,14 +64,20 @@ pub(crate) fn run(opts: crate::RunOpt) -> Result<()> {
 
     let p1 = pass1::Pass1::run(script, search_dirs).context("linker pass 1")?;
     let p2 = pass2::Pass2::run(p1)?;
+
     if let Some(file) = header {
         let mut wtr = BufWriter::new(File::create(file).context("creating c header file")?);
-        chdr::write_c_header(&mut wtr, &output, &p2.c_header).context("writing defines to c header")?;
+        chdr::write_c_header(&mut wtr, &output, &p2.c_header)
+            .context("writing defines to c header")?;
     }
+    if let Some(p) = mdep {
+        let mut wtr = BufWriter::new(File::create(p).context("creating make dependencies file")?);
+        mkdep::write_make_dep(&mut wtr, &output, &p2.inputs)
+            .context("writing dependencies to makefile")?;
+    }
+
     let obj = create_object(p2);
-
     let wtr = BufWriter::new(File::create(output).context("making output file")?);
-
     obj.write_stream(wtr).expect("writing output object file");
 
     Ok(())

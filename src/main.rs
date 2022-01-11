@@ -3,16 +3,46 @@ use std::{ffi::OsStr, path::PathBuf};
 
 mod link;
 
+const DESC: &str = "A linker for HAL's filesystem in SSB64";
+
 fn print_usage() {
-    println!(
-        "{} <config.json> [-L path/to/search -L another/path] -o <output>",
-        env!("CARGO_BIN_NAME")
+    indoc::printdoc!(
+        r#"
+        {bin} - {ver}
+        {}
+
+        Usage:
+            {bin} [options] [-L dir]... <script> [-o output.o]
+            {bin} -h | --help
+            {bin} -V | --version
+        
+        Args:
+            <script>    path to a JSON linker script
+        
+        Options:
+            -L --search-dir        Zero or more directories in which to search for 
+                                   files named in <script>
+            -o --output            Path to output object; if passed, this overides the
+                                   settings.output field in <script>
+            -c --header            Path to output a C header file with file id defines
+            -d --dependency-file   Path to output a Makefile dep (.d) file
+            -h --help              Print this help message
+            -V --version           Print version information
+
+    "#,
+        DESC,
+        bin = env!("CARGO_BIN_NAME"),
+        ver = env!("CARGO_PKG_VERSION")
     );
 }
 
 fn print_version() {
-    println!("{} - {}", env!("CARGO_BIN_NAME"), env!("CARGO_PKG_VERSION"));
-    println!("A linker for HAL's filesystem in SSB64");
+    println!(
+        "{} - {}\n{}",
+        env!("CARGO_BIN_NAME"),
+        env!("CARGO_PKG_VERSION"),
+        DESC
+    );
 }
 
 #[derive(Debug)]
@@ -60,12 +90,12 @@ impl Opt {
             .map(PathBuf::from)
             .ok_or_else(|| anyhow!("Path to config JSON file not passed. Use \'-h\' for help"))?;
 
-        Ok(Self::Run( RunOpt{
+        Ok(Self::Run(RunOpt {
             config,
             search,
             output,
             header,
-            mdep
+            mdep,
         }))
     }
 }

@@ -1,9 +1,12 @@
 use crate::link::{self, pass1::Pass1, CDefs, SymMap};
 
-use std::{fs, path::Path};
+use std::{
+    fs,
+    path::{Path, PathBuf},
+};
 
 use anyhow::{anyhow, bail, Context, Result};
-use halld::VpkSettings;
+use halld::{InputFile, VpkSettings};
 use object::{read, Object, ObjectSection, ObjectSymbol, RelocationTarget};
 use vpk0::{format::VpkMethod, Encoder};
 
@@ -22,6 +25,7 @@ pub(super) struct Pass2 {
     pub(super) data: Vec<u8>,
     pub(super) c_header: CDefs,
     pub(super) symbols: SymMap,
+    pub(super) inputs: Vec<PathBuf>,
 }
 
 impl Pass2 {
@@ -34,25 +38,36 @@ impl Pass2 {
 
         let mut output = Vec::with_capacity(0x0100_0000);
         let mut table = Vec::with_capacity((script.len() + 1) * 12);
+        let mut inputs = Vec::with_capacity(script.len());
 
         for (i, entry) in script.into_iter().enumerate() {
-            let (mut data, externs, inreloc, exreloc) = if link::is_object(&entry.file) {
-                relocate_obj(&entry.file, &sym_map)
-                    .with_context(|| format!("relocating < {} >", entry.file.display()))?
-            } else {
-                let data = fs::read(&entry.file)
-                    .with_context(|| format!("reading < {} > in pass 2", entry.file.display()))?;
+            let InputFile {
+                file,
+                compressed,
+                comp_settings,
+                inreloc,
+                exreloc,
+                imports,
+                ..
+            } = entry;
 
-                (data, entry.imports, entry.inreloc, entry.exreloc)
+            let (mut data, externs, inreloc, exreloc) = if link::is_object(&file) {
+                relocate_obj(&file, &sym_map)
+                    .with_context(|| format!("relocating < {} >", file.display()))?
+            } else {
+                let data = fs::read(&file)
+                    .with_context(|| format!("reading < {} > in pass 2", file.display()))?;
+
+                (data, imports, inreloc, exreloc)
             };
 
             align_buffer(&mut data);
             let size = u32::try_from(data.len())?;
 
-            let (data, comp_size) = if entry.compressed {
-                let settings = entry.comp_settings.as_ref();
+            let (data, comp_size) = if compressed {
+                let settings = comp_settings.as_ref();
                 let mut d = compress_data(data, settings)
-                    .with_context(|| format!("compressing <{}>", entry.file.display()))?;
+                    .with_context(|| format!("compressing <{}>", file.display()))?;
 
                 align_buffer(&mut d);
                 let size = u32::try_from(d.len())?;
@@ -77,6 +92,7 @@ impl Pass2 {
                 add_externs(&mut output, ex);
             }
             add_file_info(&mut table, info).context("writing file info to file table")?;
+            inputs.push(file);
         }
 
         terminate_table(&mut table, output.len()).context("terminating resource table")?;
@@ -86,6 +102,7 @@ impl Pass2 {
             data: output,
             c_header,
             symbols: sym_map,
+            inputs,
         })
     }
 }

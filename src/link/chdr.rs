@@ -1,9 +1,15 @@
-
-use std::{io::{Write, self}, path::Path};
+use std::{
+    io::{self, Write},
+    path::Path,
+};
 
 use crate::link::{self, CDefs};
 
-pub(super) fn write_c_header(wtr: &mut impl Write, obj_path: &Path, files: &CDefs) -> io::Result<()> {
+pub(super) fn write_c_header(
+    wtr: &mut impl Write,
+    obj_path: &Path,
+    files: &CDefs,
+) -> io::Result<()> {
     let guard = {
         let mut s = link::fmt_filename(obj_path);
         s += "_H";
