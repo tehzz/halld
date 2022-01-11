@@ -1,6 +1,6 @@
 use std::{
     fs,
-    path::{Component, Path, PathBuf},
+    path::PathBuf,
 };
 
 use crate::link::{self, CDefs, Sym, SymMap};
@@ -34,7 +34,7 @@ impl Pass1 {
         for (i, entry) in script.iter_mut().enumerate() {
             // use the original name for creating c defines
             let idx = i as u16;
-            let def = (fmt_filename(&entry.file), idx);
+            let def = (link::fmt_filename(&entry.file), idx);
             c_header.push(def);
             // what to do about the same named files...?
             locate_file(&mut entry.file, search).context("locating files to link")?;
@@ -43,7 +43,7 @@ impl Pass1 {
                 let file = fs::read(&entry.file)?;
                 let obj = read::File::parse(&*file)?;
                 for sym in obj.symbols() {
-                    println!("{:#?}", sym);
+                    //println!("{:#?}", sym);
                     // todo: check that the symbol is in the data section
                     if sym.kind() == SymbolKind::Unknown
                         && sym.is_global()
@@ -115,27 +115,4 @@ fn locate_file(file: &mut PathBuf, search_dirs: Option<&[PathBuf]>) -> Result<()
     }
 
     Ok(())
-}
-
-fn fmt_filename(p: &Path) -> String {
-    let mut s = "RLD_FID".to_string();
-    if let Some(parent) = p.parent() {
-        for cmpt in parent.components() {
-            s += "_";
-            match cmpt {
-                Component::Normal(p) => s += &p.to_ascii_uppercase().to_string_lossy(),
-                Component::Prefix(_)
-                | Component::RootDir
-                | Component::CurDir
-                | Component::ParentDir => (),
-            }
-        }
-    }
-
-    if let Some(stem) = p.file_stem() {
-        s += "_";
-        s += &stem.to_ascii_uppercase().to_string_lossy();
-    }
-
-    s
 }

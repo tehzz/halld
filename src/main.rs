@@ -16,12 +16,17 @@ fn print_version() {
 }
 
 #[derive(Debug)]
+struct RunOpt {
+    config: PathBuf,
+    search: Option<Vec<PathBuf>>,
+    output: Option<PathBuf>,
+    header: Option<PathBuf>,
+    mdep: Option<PathBuf>,
+}
+
+#[derive(Debug)]
 enum Opt {
-    Run {
-        config: PathBuf,
-        search: Option<Vec<PathBuf>>,
-        output: Option<PathBuf>,
-    },
+    Run(RunOpt),
     Help,
     Version,
 }
@@ -45,6 +50,8 @@ impl Opt {
             Some(search)
         };
         let output = args.opt_value_from_os_str(["-o", "--output"], to_pathbuf)?;
+        let header = args.opt_value_from_os_str(["-c", "--header"], to_pathbuf)?;
+        let mdep = args.opt_value_from_os_str(["-d", "--dependency-file"], to_pathbuf)?;
 
         let config = args
             .finish()
@@ -53,11 +60,13 @@ impl Opt {
             .map(PathBuf::from)
             .ok_or_else(|| anyhow!("Path to config JSON file not passed. Use \'-h\' for help"))?;
 
-        Ok(Self::Run {
+        Ok(Self::Run( RunOpt{
             config,
             search,
             output,
-        })
+            header,
+            mdep
+        }))
     }
 }
 
@@ -73,11 +82,7 @@ fn main() -> Result<()> {
             print_version();
             Ok(())
         }
-        Opt::Run {
-            config,
-            search,
-            output,
-        } => link::run(config, search, output),
+        Opt::Run(opts) => link::run(opts),
     }
 }
 

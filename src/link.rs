@@ -1,19 +1,20 @@
 use halld::LinkerConfig;
 use object::{
     write::{self, SectionId, StandardSegment},
-    Architecture, BinaryFormat, Endianness, SectionIndex, SectionKind,
+    Architecture, BinaryFormat, Endianness, SectionKind,
 };
 use std::{
     collections::HashMap,
-    fs::File,
+    fs::{File},
     io::{BufReader, BufWriter},
-    path::{Path, PathBuf},
+    path::{Path, Component},
 };
 
 use anyhow::{anyhow, Context, Result};
 
 mod pass1;
 mod pass2;
+mod chdr;
 
 #[derive(Debug, Copy, Clone, PartialEq, Eq)]
 struct Sym {
@@ -24,11 +25,10 @@ struct Sym {
 type SymMap = HashMap<String, Sym>;
 type CDefs = Vec<(String, u16)>;
 
-pub(crate) fn run(
-    config: PathBuf,
-    search: Option<Vec<PathBuf>>,
-    output: Option<PathBuf>,
-) -> Result<()> {
+pub(crate) fn run(opts: crate::RunOpt) -> Result<()> {
+    let crate::RunOpt { config, search, output, header, mdep } = opts;
+
+
     let rdr = BufReader::new(
         File::open(&config)
             .with_context(|| format!("couldn't open config script at <{}>", config.display()))?,
@@ -58,7 +58,10 @@ pub(crate) fn run(
 
     let p1 = pass1::Pass1::run(script, search_dirs).context("linker pass 1")?;
     let p2 = pass2::Pass2::run(p1)?;
-    println!("c header\n{:#?}", &p2.c_header);
+    if let Some(file) = header {
+        let mut wtr = BufWriter::new(File::create(file).context("creating c header file")?);
+        chdr::write_c_header(&mut wtr, &output, &p2.c_header).context("writing defines to c header")?;
+    }
     let obj = create_object(p2);
 
     let wtr = BufWriter::new(File::create(output).context("making output file")?);
@@ -115,4 +118,27 @@ fn create_symbol(sec: SectionId, (name, sym): (String, Sym)) -> write::Symbol {
         section: write::SymbolSection::Section(sec),
         flags: object::SymbolFlags::None,
     }
+}
+
+fn fmt_filename(p: &Path) -> String {
+    let mut s = "RLD_FID".to_string();
+    if let Some(parent) = p.parent() {
+        for cmpt in parent.components() {
+            s += "_";
+            match cmpt {
+                Component::Normal(p) => s += &p.to_ascii_uppercase().to_string_lossy(),
+                Component::Prefix(_)
+                | Component::RootDir
+                | Component::CurDir
+                | Component::ParentDir => (),
+            }
+        }
+    }
+
+    if let Some(stem) = p.file_stem() {
+        s += "_";
+        s += &stem.to_ascii_uppercase().to_string_lossy();
+    }
+
+    s
 }
