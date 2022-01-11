@@ -1,7 +1,4 @@
-use std::{
-    fs,
-    path::PathBuf,
-};
+use std::{fs, path::PathBuf};
 
 use crate::link::{self, CDefs, Sym, SymMap};
 use halld::LinkerScript;
