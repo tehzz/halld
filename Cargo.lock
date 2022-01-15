@@ -252,9 +252,9 @@ checksum = "49874b5167b65d7193b8aba1567f5c7d93d001cafc34600cee003eda787e483f"
 
 [[package]]
 name = "vpk0"
-version = "0.8.1"
+version = "0.8.2"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "62876f2ee5a8367b03cfcfcecfc46f80a7cf38107df0f14fabeea01ea30fc097"
+checksum = "13013efd5acdb38fba304715f0a278d9347aa68f90c94e7545b53dbb14bdcd3a"
 dependencies = [
  "bitstream-io",
  "slice-deque",

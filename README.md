@@ -35,3 +35,22 @@ The script is a simple format with two main keys: `"settings"` and `"script"`. T
 #### `"script"`
 This is an array of files to link into one object. It supports both directly linking in binary data, as well as relocatable ELF objects. 
 
+| Key            | Necessary | Value | Description |
+|----------------|-----------|-------|-------------|
+| `file`         | true      | str   | Path to the file to link
+| `compressed`   | true      | bool  | Should the data from `file` be compressed |
+| `compSettings` | false     | obj   | See below |
+| `inreloc`      | false     | u32   | Offset in bytes to the first internal relocation. Not used for ELF .obj |
+| `exreloc`      | false     | u32   | Offset in bytes to the first external relocation. Not used for ELF .obj |
+| `exports`      | false     | [str, u32][] | Array of [symbol, value] for locations in `file`. Not used for ELF .obj |
+| `imports`      | false     | u16[] | Array of other files needed for this file. Not used for ELF .obj |
+
+#### `compSettings`
+Settings that control vpk0 compression for a `file`
+
+| Key          | Necessary | Value  | Description |
+|--------------|-----------|--------|-------------|
+| `method`     | false     | 0 || 1 | One Sample (0) or Two Sample (1) |
+| `offsets`    | false     | str    | A string tree of offset / moveback bitsizes |
+| `lengths`    | false     | str    | A string tree of length / size bitsizes |
+
