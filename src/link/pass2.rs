@@ -14,7 +14,8 @@ use vpk0::{format::VpkMethod, Encoder};
 pub(super) struct FileInfo {
     pub(super) offset: u32,
     pub(super) size: u32,
-    pub(super) comp_size: Option<u32>,
+    pub(super) rom_size: u32,
+    pub(super) compressed: bool,
     pub(super) inreloc: Option<u32>,
     pub(super) exreloc: Option<u32>,
 }
@@ -64,7 +65,7 @@ impl Pass2 {
             align_buffer(&mut data);
             let size = u32::try_from(data.len())?;
 
-            let (data, comp_size) = if compressed {
+            let (data, rom_size) = if compressed {
                 let settings = comp_settings.as_ref();
                 let mut d = compress_data(data, settings)
                     .with_context(|| format!("compressing <{}>", file.display()))?;
@@ -72,16 +73,17 @@ impl Pass2 {
                 align_buffer(&mut d);
                 let size = u32::try_from(d.len())?;
 
-                (d, Some(size))
+                (d, size)
             } else {
-                (data, None)
+                (data, size)
             };
 
             let offset = u32::try_from(output.len())?;
             let info = FileInfo {
                 offset,
                 size,
-                comp_size,
+                rom_size,
+                compressed,
                 inreloc,
                 exreloc,
             };
@@ -238,13 +240,14 @@ fn add_file_info(table: &mut Vec<u8>, info: FileInfo) -> Result<()> {
     let FileInfo {
         offset,
         size,
-        comp_size,
+        rom_size,
+        compressed,
         inreloc,
         exreloc,
     } = info;
-    let offset = offset | (comp_size.is_some() as u32) << 31;
+    let offset = offset | (compressed as u32) << 31;
     let size = shorten(size).context("size")?;
-    let comp_size = opt_shorten(comp_size).context("compressed size")?;
+    let comp_size = shorten(rom_size).context("rom size")?;
     let inreloc = opt_shorten(inreloc).context("interal relocations start")?;
     let exreloc = opt_shorten(exreloc).context("exteral relocations start")?;
 
