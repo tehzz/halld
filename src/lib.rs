@@ -33,4 +33,5 @@ pub struct VpkSettings {
     pub method: Option<u8>,
     pub offsets: Option<String>,
     pub lengths: Option<String>,
+    pub excess: Option<Vec<u8>>,
 }

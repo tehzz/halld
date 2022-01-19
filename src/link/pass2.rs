@@ -70,6 +70,9 @@ impl Pass2 {
                 let mut d = compress_data(data, settings)
                     .with_context(|| format!("compressing <{}>", file.display()))?;
 
+                if let Some(excess) = comp_settings.as_ref().and_then(|s| s.excess.as_deref()) {
+                    d.extend_from_slice(excess);
+                }
                 align_buffer(&mut d);
                 let size = u32::try_from(d.len())?;
 
