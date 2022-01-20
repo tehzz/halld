@@ -8,17 +8,8 @@ use std::{
 use anyhow::{anyhow, bail, Context, Result};
 use halld::{InputFile, VpkSettings};
 use object::{read, Object, ObjectSection, ObjectSymbol, RelocationTarget};
+use rayon::prelude::*;
 use vpk0::{format::VpkMethod, Encoder};
-
-#[derive(Debug, Copy, Clone)]
-pub(super) struct FileInfo {
-    pub(super) offset: u32,
-    pub(super) size: u32,
-    pub(super) rom_size: u32,
-    pub(super) compressed: bool,
-    pub(super) inreloc: Option<u32>,
-    pub(super) exreloc: Option<u32>,
-}
 
 #[derive(Debug)]
 pub(super) struct Pass2 {
@@ -41,63 +32,31 @@ impl Pass2 {
         let mut table = Vec::with_capacity((script.len() + 1) * 12);
         let mut inputs = Vec::with_capacity(script.len());
 
-        for (i, entry) in script.into_iter().enumerate() {
-            let InputFile {
-                file,
-                compressed,
-                comp_settings,
-                inreloc,
-                exreloc,
-                imports,
-                ..
-            } = entry;
+        // This could maybe be done in one pass with a custom IndexedParellelIterator...?
+        let processed = script
+            .into_par_iter()
+            .map(|entry| process_linked_file(entry, &sym_map))
+            .collect::<Result<Vec<_>>>()
+            .context("reading and compressing file data in pass2")?;
 
-            let (mut data, externs, inreloc, exreloc) = if link::is_object(&file) {
-                relocate_obj(&file, &sym_map)
-                    .with_context(|| format!("relocating < {} >", file.display()))?
-            } else {
-                let data = fs::read(&file)
-                    .with_context(|| format!("reading < {} > in pass 2", file.display()))?;
+        for (i, res) in processed.into_iter().enumerate() {
+            let ProcessedFile {
+                path,
+                data,
+                basic,
+                externs,
+            } = res;
 
-                (data, imports, inreloc, exreloc)
-            };
+            let offset = output.len() as u32;
+            let info = FileInfo::from((offset, basic));
 
-            align_buffer(&mut data);
-            let size = u32::try_from(data.len())?;
-
-            let (data, rom_size) = if compressed {
-                let settings = comp_settings.as_ref();
-                let mut d = compress_data(data, settings)
-                    .with_context(|| format!("compressing <{}>", file.display()))?;
-
-                if let Some(excess) = comp_settings.as_ref().and_then(|s| s.excess.as_deref()) {
-                    d.extend_from_slice(excess);
-                }
-                align_buffer(&mut d);
-                let size = u32::try_from(d.len())?;
-
-                (d, size)
-            } else {
-                (data, size)
-            };
-
-            let offset = u32::try_from(output.len())?;
-            let info = FileInfo {
-                offset,
-                size,
-                rom_size,
-                compressed,
-                inreloc,
-                exreloc,
-            };
             println!("{}\t{:x?}", i, info);
-
             add_file_data(&mut output, &data);
             if let Some(ex) = externs.as_deref() {
                 add_externs(&mut output, ex);
             }
             add_file_info(&mut table, info).context("writing file info to file table")?;
-            inputs.push(file);
+            inputs.push(path);
         }
 
         terminate_table(&mut table, output.len()).context("terminating resource table")?;
@@ -110,6 +69,103 @@ impl Pass2 {
             inputs,
         })
     }
+}
+
+#[derive(Debug, Copy, Clone)]
+struct FileInfo {
+    offset: u32,
+    size: u32,
+    rom_size: u32,
+    compressed: bool,
+    inreloc: Option<u32>,
+    exreloc: Option<u32>,
+}
+
+impl From<(u32, BasicFileInfo)> for FileInfo {
+    fn from((offset, basic): (u32, BasicFileInfo)) -> Self {
+        Self {
+            offset,
+            size: basic.size,
+            rom_size: basic.rom_size,
+            compressed: basic.compressed,
+            inreloc: basic.inreloc,
+            exreloc: basic.exreloc,
+        }
+    }
+}
+
+struct ProcessedFile {
+    path: PathBuf,
+    data: Vec<u8>,
+    basic: BasicFileInfo,
+    externs: Option<Vec<u16>>,
+}
+
+/// `FileInfo` without the offset (not yet known)
+struct BasicFileInfo {
+    size: u32,
+    rom_size: u32,
+    compressed: bool,
+    inreloc: Option<u32>,
+    exreloc: Option<u32>,
+}
+
+fn process_linked_file(entry: InputFile, syms: &SymMap) -> Result<ProcessedFile> {
+    let InputFile {
+        file,
+        compressed,
+        comp_settings,
+        inreloc,
+        exreloc,
+        imports,
+        ..
+    } = entry;
+
+    println!("processing <{}>", file.display());
+
+    let (mut data, externs, inreloc, exreloc) = if link::is_object(&file) {
+        relocate_obj(&file, &syms).with_context(|| format!("relocating < {} >", file.display()))?
+    } else {
+        let data =
+            fs::read(&file).with_context(|| format!("reading < {} > in pass 2", file.display()))?;
+
+        (data, imports, inreloc, exreloc)
+    };
+
+    // zero align raw data to word (4byte) size
+    align_buffer(&mut data);
+    let size = u32::try_from(data.len())?;
+
+    let (data, rom_size) = if compressed {
+        let settings = comp_settings.as_ref();
+        let mut d = compress_data(data, settings)
+            .with_context(|| format!("compressing <{}>", file.display()))?;
+
+        if let Some(excess) = comp_settings.as_ref().and_then(|s| s.excess.as_deref()) {
+            d.extend_from_slice(excess);
+        }
+        align_buffer(&mut d);
+        let size = u32::try_from(d.len())?;
+
+        (d, size)
+    } else {
+        (data, size)
+    };
+
+    let basic = BasicFileInfo {
+        size,
+        rom_size,
+        compressed,
+        inreloc,
+        exreloc,
+    };
+
+    Ok(ProcessedFile {
+        data,
+        basic,
+        externs,
+        path: file,
+    })
 }
 
 type RelInfo = (Vec<u8>, Option<Vec<u16>>, Option<u32>, Option<u32>);
@@ -222,13 +278,16 @@ fn compress_data(original: Vec<u8>, settings: Option<&VpkSettings>) -> Result<Ve
 
 fn add_file_data(v: &mut Vec<u8>, data: &[u8]) {
     v.extend_from_slice(data);
-    align_buffer(v);
+    // does not have to hold 4 byte alignment
+    // only the file's size is four byte aligned
+    // align_buffer(v);
 }
 
 fn add_externs(v: &mut Vec<u8>, externs: &[u16]) {
     let be_iter = externs.iter().copied().flat_map(u16::to_be_bytes);
     v.extend(be_iter);
-    align_buffer(v);
+    // does not have to hold 4 byte alignment
+    // align_buffer(v);
 }
 
 fn align_buffer(v: &mut Vec<u8>) {
