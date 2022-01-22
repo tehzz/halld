@@ -26,6 +26,8 @@ fn print_usage() {
                                    settings.output field in <script>
             -c --header            Path to output a C header file with file id defines
             -d --dependency-file   Path to output a Makefile dep (.d) file
+        
+        Flags:
             -h --help              Print this help message
             -V --version           Print version information
 
