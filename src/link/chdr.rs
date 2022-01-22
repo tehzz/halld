@@ -11,7 +11,7 @@ pub(super) fn write_c_header(
     files: &CDefs,
 ) -> io::Result<()> {
     let guard = {
-        let mut s = link::fmt_filename(obj_path);
+        let mut s = link::fmt_as_cident(obj_path);
         s += "_H";
         s
     };

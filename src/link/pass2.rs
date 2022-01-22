@@ -124,7 +124,7 @@ fn process_linked_file(entry: InputFile, syms: &SymMap) -> Result<ProcessedFile>
     println!("processing <{}>", file.display());
 
     let (mut data, externs, inreloc, exreloc) = if link::is_object(&file) {
-        relocate_obj(&file, &syms).with_context(|| format!("relocating < {} >", file.display()))?
+        relocate_obj(&file, syms).with_context(|| format!("relocating < {} >", file.display()))?
     } else {
         let data =
             fs::read(&file).with_context(|| format!("reading < {} > in pass 2", file.display()))?;

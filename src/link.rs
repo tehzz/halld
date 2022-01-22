@@ -132,13 +132,25 @@ fn create_symbol(sec: SectionId, (name, sym): (String, Sym)) -> write::Symbol {
     }
 }
 
-fn fmt_filename(p: &Path) -> String {
+fn fmt_as_cident(p: &Path) -> String {
+    fn valid_c_ident(s: &str) -> String {
+        s.chars()
+            .map(|c| {
+                if c.is_ascii_alphanumeric() {
+                    c.to_ascii_uppercase()
+                } else {
+                    '_'
+                }
+            })
+            .collect()
+    }
+
     let mut s = "RLD_FID".to_string();
     if let Some(parent) = p.parent() {
         for cmpt in parent.components() {
             s += "_";
             match cmpt {
-                Component::Normal(p) => s += &p.to_ascii_uppercase().to_string_lossy(),
+                Component::Normal(p) => s += &valid_c_ident(&*p.to_string_lossy()),
                 Component::Prefix(_)
                 | Component::RootDir
                 | Component::CurDir
@@ -149,7 +161,7 @@ fn fmt_filename(p: &Path) -> String {
 
     if let Some(stem) = p.file_stem() {
         s += "_";
-        s += &stem.to_ascii_uppercase().to_string_lossy();
+        s += &valid_c_ident(&*stem.to_string_lossy());
     }
 
     s

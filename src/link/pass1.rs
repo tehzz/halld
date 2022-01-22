@@ -31,7 +31,7 @@ impl Pass1 {
         for (i, entry) in script.iter_mut().enumerate() {
             // use the original name for creating c defines
             let idx = i as u16;
-            let def = (link::fmt_filename(&entry.file), idx);
+            let def = (link::fmt_as_cident(&entry.file), idx);
             c_header.push(def);
             // what to do about the same named files...?
             locate_file(&mut entry.file, search).context("locating files to link")?;
