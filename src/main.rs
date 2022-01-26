@@ -1,6 +1,7 @@
 use anyhow::{anyhow, Result};
 use std::{ffi::OsStr, path::PathBuf};
 
+mod cache;
 mod link;
 
 const DESC: &str = "A linker for HAL's filesystem in SSB64";
@@ -26,6 +27,7 @@ fn print_usage() {
                                    settings.output field in <script>
             -c --header            Path to output a C header file with file id defines
             -d --dependency-file   Path to output a Makefile dep (.d) file
+            -k --cache             Path to a cache directory for compressed data
         
         Flags:
             -h --help              Print this help message
@@ -53,6 +55,7 @@ struct RunOpt {
     search: Option<Vec<PathBuf>>,
     output: Option<PathBuf>,
     header: Option<PathBuf>,
+    cache: Option<PathBuf>,
     mdep: Option<PathBuf>,
 }
 
@@ -84,6 +87,7 @@ impl Opt {
         let output = args.opt_value_from_os_str(["-o", "--output"], to_pathbuf)?;
         let header = args.opt_value_from_os_str(["-c", "--header"], to_pathbuf)?;
         let mdep = args.opt_value_from_os_str(["-d", "--dependency-file"], to_pathbuf)?;
+        let cache = args.opt_value_from_os_str(["-k", "--cache"], to_pathbuf)?;
 
         let config = args
             .finish()
@@ -97,6 +101,7 @@ impl Opt {
             search,
             output,
             header,
+            cache,
             mdep,
         }))
     }
@@ -121,19 +126,3 @@ fn main() -> Result<()> {
 fn to_pathbuf(s: &OsStr) -> Result<PathBuf> {
     Ok(PathBuf::from(s))
 }
-
-/*
- * Program Overview
- *   1. Decode JSON and CLI settings
- *   2. Pass 1
- *      a. Find files specified in JSON
- *      b. Read file (if object) and add symbols to lookup maps
- *      c. Check for valid values? (e.g., is vpk method valid?)
- *   3. Pass 2
- *      a. Resolve symbols (in object) with lookup maps
- *      b. Create list of necessary imports for each file (if obj)
- *      c. Compress files
- *      d. Stitch together all files and keep track of the beginning and size of files
- *      e. Create resource header
- *   4. Output obj with header and filedata
- */

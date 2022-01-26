@@ -33,6 +33,7 @@ pub(crate) fn run(opts: crate::RunOpt) -> Result<()> {
         output,
         header,
         mdep,
+        cache,
     } = opts;
 
     let rdr = BufReader::new(
@@ -47,11 +48,14 @@ pub(crate) fn run(opts: crate::RunOpt) -> Result<()> {
     } = config;
 
     let config_output = settings.as_mut().and_then(|s| s.output.take());
+    let config_cache = settings.as_mut().and_then(|s| s.cache.take());
     let config_search = settings.and_then(|s| s.search_dirs);
 
     let output = output
         .or(config_output)
         .ok_or_else(|| anyhow!("no output location from JSON or from CLI"))?;
+
+    let cache = cache.or(config_cache);
 
     let search_dirs = match (search, config_search) {
         (Some(s), None) | (None, Some(s)) => Some(s),
@@ -63,7 +67,7 @@ pub(crate) fn run(opts: crate::RunOpt) -> Result<()> {
     };
 
     let p1 = pass1::Pass1::run(script, search_dirs).context("linker pass 1")?;
-    let p2 = pass2::Pass2::run(p1)?;
+    let p2 = pass2::Pass2::run(p1, cache)?;
 
     if let Some(file) = header {
         let mut wtr = BufWriter::new(File::create(file).context("creating c header file")?);

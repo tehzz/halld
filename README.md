@@ -3,7 +3,7 @@
 A linker for HAL's "relocatable data" in Super Smash Bros. 64.
 
 ## Usage
-```bash
+```
 Usage:
     halld [options] [-L dir]... <script> [-o output.o]
     halld -h | --help
@@ -19,6 +19,9 @@ Options:
                            settings.output field in <script>
     -c --header            Path to output a C header file with file id defines
     -d --dependency-file   Path to output a Makefile dep (.d) file
+    -k --cache             Path to a cache directory for compressed data
+
+Flags:
     -h --help              Print this help message
     -V --version           Print version information
 ```
@@ -31,6 +34,7 @@ The script is a simple format with two main keys: `"settings"` and `"script"`. T
 |--------------|-----------|-------|-------------|
 | `searchDirs` | false     | str[] | A list of directory paths to check. Added to list pased with CLI option `-L`|
 | `output`     | false     | str   | Path to output linked objected |
+| `cache`      | false     | str   | Path to a directory for caching compressed data |
 
 #### `"script"`
 This is an array of files to link into one object. It supports both directly linking in binary data, as well as relocatable ELF objects. 

@@ -12,6 +12,7 @@ pub struct LinkerConfig {
 pub struct LinkerSettings {
     pub search_dirs: Option<Vec<PathBuf>>,
     pub output: Option<PathBuf>,
+    pub cache: Option<PathBuf>,
 }
 
 pub type LinkerScript = Vec<InputFile>;

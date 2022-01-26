@@ -1,4 +1,7 @@
-use crate::link::{self, pass1::Pass1, CDefs, SymMap};
+use crate::{
+    cache::DataCache,
+    link::{self, pass1::Pass1, CDefs, SymMap},
+};
 
 use std::{
     fs,
@@ -21,7 +24,7 @@ pub(super) struct Pass2 {
 }
 
 impl Pass2 {
-    pub(super) fn run(pass1: Pass1) -> Result<Self> {
+    pub(super) fn run(pass1: Pass1, cache: Option<PathBuf>) -> Result<Self> {
         let Pass1 {
             script,
             sym_map,
@@ -31,11 +34,15 @@ impl Pass2 {
         let mut output = Vec::with_capacity(0x0100_0000);
         let mut table = Vec::with_capacity((script.len() + 1) * 12);
         let mut inputs = Vec::with_capacity(script.len());
+        let vpk_cache = cache
+            .map(DataCache::new)
+            .transpose()
+            .context("creating vpk compressiong cache")?;
 
         // This could maybe be done in one pass with a custom IndexedParellelIterator...?
         let processed = script
             .into_par_iter()
-            .map(|entry| process_linked_file(entry, &sym_map))
+            .map(|entry| process_linked_file(entry, &sym_map, vpk_cache.as_ref()))
             .collect::<Result<Vec<_>>>()
             .context("reading and compressing file data in pass2")?;
 
@@ -110,7 +117,11 @@ struct BasicFileInfo {
     exreloc: Option<u32>,
 }
 
-fn process_linked_file(entry: InputFile, syms: &SymMap) -> Result<ProcessedFile> {
+fn process_linked_file(
+    entry: InputFile,
+    syms: &SymMap,
+    cache: Option<&DataCache>,
+) -> Result<ProcessedFile> {
     let InputFile {
         file,
         compressed,
@@ -137,16 +148,29 @@ fn process_linked_file(entry: InputFile, syms: &SymMap) -> Result<ProcessedFile>
     let size = u32::try_from(data.len())?;
 
     let (data, rom_size) = if compressed {
-        let settings = comp_settings.as_ref();
-        let mut d = compress_data(data, settings)
-            .with_context(|| format!("compressing <{}>", file.display()))?;
+        // store only the compressed vpk0 bytes in the cache
+        // add excess and padding after
+        let mut d = if let Some(cached_data) = cache.and_then(|c| c.read(&data)) {
+            println!("found in cache: {}", file.display());
+            cached_data
+        } else {
+            let settings = comp_settings.as_ref();
+            let compressed = compress_data(&data, settings)
+                .with_context(|| format!("compressing <{}>", file.display()))?;
+
+            if let Some(c) = cache {
+                c.write(&data, &compressed)
+                    .with_context(|| format!("caching compressed data for <{}>", file.display()))?;
+            }
+            compressed
+        };
 
         if let Some(excess) = comp_settings.as_ref().and_then(|s| s.excess.as_deref()) {
             d.extend_from_slice(excess);
         }
         align_buffer(&mut d);
-        let size = u32::try_from(d.len())?;
 
+        let size = u32::try_from(d.len())?;
         (d, size)
     } else {
         (data, size)
@@ -258,7 +282,7 @@ fn apply_relocation(buf: &mut Vec<u8>, (loc, val): (usize, u32), next: Option<u3
     Ok(())
 }
 
-fn compress_data(original: Vec<u8>, settings: Option<&VpkSettings>) -> Result<Vec<u8>> {
+fn compress_data(original: &[u8], settings: Option<&VpkSettings>) -> Result<Vec<u8>> {
     let method = settings
         .and_then(|s| s.method)
         .map(|m| match m {
