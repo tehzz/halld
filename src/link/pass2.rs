@@ -57,7 +57,7 @@ impl Pass2 {
             let offset = output.len() as u32;
             let info = FileInfo::from((offset, basic));
 
-            println!("{}\t{:x?}", i, info);
+            //println!("{}\t{:x?}", i, info);
             add_file_data(&mut output, &data);
             if let Some(ex) = externs.as_deref() {
                 add_externs(&mut output, ex);
@@ -132,7 +132,7 @@ fn process_linked_file(
         ..
     } = entry;
 
-    println!("processing <{}>", file.display());
+    //println!("processing <{}>", file.display());
 
     let (mut data, externs, inreloc, exreloc) = if link::is_object(&file) {
         relocate_obj(&file, syms).with_context(|| format!("relocating < {} >", file.display()))?
@@ -151,7 +151,7 @@ fn process_linked_file(
         // store only the compressed vpk0 bytes in the cache
         // add excess and padding after
         let mut d = if let Some(cached_data) = cache.and_then(|c| c.read(&data)) {
-            println!("found in cache: {}", file.display());
+            //println!("found in cache: {}", file.display());
             cached_data
         } else {
             let settings = comp_settings.as_ref();
