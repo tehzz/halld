@@ -46,7 +46,7 @@ impl Pass2 {
             .collect::<Result<Vec<_>>>()
             .context("reading and compressing file data in pass2")?;
 
-        for (i, res) in processed.into_iter().enumerate() {
+        for (_i, res) in processed.into_iter().enumerate() {
             let ProcessedFile {
                 path,
                 data,
