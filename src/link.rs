@@ -41,11 +41,10 @@ pub(crate) fn run(opts: crate::RunOpt) -> Result<()> {
             .with_context(|| format!("couldn't open config script at <{}>", config.display()))?,
     );
 
-    let config: LinkerConfig = serde_json::from_reader(rdr).context("parsing config JSON")?;
     let LinkerConfig {
         mut settings,
         script,
-    } = config;
+    } = serde_json::from_reader(rdr).context("parsing config JSON")?;
 
     let config_output = settings.as_mut().and_then(|s| s.output.take());
     let config_cache = settings.as_mut().and_then(|s| s.cache.take());
@@ -76,7 +75,7 @@ pub(crate) fn run(opts: crate::RunOpt) -> Result<()> {
     }
     if let Some(p) = mdep {
         let mut wtr = BufWriter::new(File::create(p).context("creating make dependencies file")?);
-        mkdep::write_make_dep(&mut wtr, &output, &p2.inputs)
+        mkdep::write_make_dep(&mut wtr, &output, &config, &p2.inputs)
             .context("writing dependencies to makefile")?;
     }
 

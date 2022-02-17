@@ -292,7 +292,7 @@ fn compress_data(original: &[u8], settings: Option<&VpkSettings>) -> Result<Vec<
         })
         .unwrap_or(VpkMethod::OneSample);
 
-    Encoder::for_bytes(&original)
+    Encoder::for_bytes(original)
         .method(method)
         .optional_offsets(settings.and_then(|s| s.offsets.as_deref()))
         .optional_lengths(settings.and_then(|s| s.lengths.as_deref()))
